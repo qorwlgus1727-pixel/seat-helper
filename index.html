@@ -14,19 +14,25 @@
         body { font-family: 'Noto Sans KR', sans-serif; background-color: #fff5f7; min-height: 100vh; position: relative; }
         .card { background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
         
-        /* 책상 스타일 */
+        /* 책상 기본 스타일 */
         .desk { 
             width: 90px; height: 70px; border-radius: 8px; border: 2px solid #fce4ec; 
             transition: all 0.2s; cursor: grab; background: white;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
+            position: relative;
         }
         .desk:active { cursor: grabbing; }
         .desk.over { border: 2px dashed #f06292; background-color: #fce4ec; transform: scale(1.05); }
         .seat-full { background-color: #fff0f3; border-color: #f06292; color: #d81b60; font-weight: bold; }
         
-        .grid-pair { gap: 8px 4px; }
-        .grid-pair .desk:nth-child(even) { margin-left: 20px; }
+        /* 배치 모드 스타일 */
         .grid-exam { gap: 15px; }
+        .grid-pair { gap: 15px 4px; } /* 줄 간격은 넓게, 책상 사이는 좁게 */
+        
+        /* 짝꿍 모드 핵심: 2, 4, 6... 번째 책상 뒤에 여백 생성 (단, 줄의 마지막은 제외) */
+        .grid-pair .desk-pair-end {
+            margin-right: 30px;
+        }
 
         .platform { 
             width: 150px; height: 40px; background: #fce4ec; border: 2px solid #f06292; 
@@ -35,11 +41,8 @@
         }
 
         .tab-active { background-color: #f06292 !important; color: white !important; }
+        .drop-active { border: 2px dashed #f06292 !important; background-color: #fff0f3 !important; }
         
-        /* 드롭존 강조 */
-        .drop-active { border: 2px dashed #f06292; background-color: #fff0f3; }
-
-        /* 출력 메뉴 */
         #exportMenu { display: none; position: absolute; right: 0; top: 110%; z-index: 100; width: 150px; }
 
         @media print {
@@ -67,7 +70,7 @@
                 <button onclick="document.getElementById('fileInput').click()" class="bg-white text-pink-500 border border-pink-500 px-4 py-2 rounded-lg hover:bg-pink-50 font-medium transition-all">📁 명단 업로드</button>
                 <button onclick="arrangeSeats()" class="bg-pink-500 text-white px-5 py-2 rounded-lg hover:bg-pink-600 shadow-md font-medium transition-all">✨ 랜덤 배치</button>
                 
-                <div class="relative group">
+                <div class="relative">
                     <button onclick="toggleExportMenu()" class="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800 font-medium flex items-center gap-2">
                         🖨️ 출력 <small>▼</small>
                     </button>
@@ -89,7 +92,7 @@
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <!-- 왼쪽: 학생 관리 -->
             <div class="lg:col-span-1 space-y-4 no-print">
-                <div id="dropZone" class="card p-5 transition-all">
+                <div id="dropZone" class="card p-5 transition-all border-2 border-transparent">
                     <div class="flex justify-between items-center mb-4">
                         <input type="text" id="classNameInput" onchange="renameClass(this.value)" class="text-lg font-bold text-gray-700 border-b border-transparent hover:border-gray-300 focus:outline-none focus:border-pink-500 w-2/3" value="1반">
                         <button onclick="deleteClass()" class="text-xs text-gray-400 hover:text-red-500">삭제</button>
@@ -106,7 +109,7 @@
                         </div>
                     </div>
 
-                    <div class="text-[11px] text-gray-400 mb-2 font-bold">학생 명단 (파일을 여기로 드래그하세요)</div>
+                    <div class="text-[11px] text-gray-400 mb-2 font-bold">학생 명단 (파일 드래그 가능)</div>
                     <ul id="studentList" class="space-y-1 text-sm text-gray-500 max-h-[400px] overflow-y-auto pr-2"></ul>
                 </div>
             </div>
@@ -158,7 +161,7 @@
 
     <script>
         // 상태 변수
-        let classes = JSON.parse(localStorage.getItem('seatHelperData')) || [
+        let classes = JSON.parse(localStorage.getItem('seatHelperData_v2')) || [
             { id: Date.now(), name: '1반', students: [], arrangement: [] }
         ];
         let currentClassId = classes[0].id;
@@ -172,7 +175,7 @@
             initDragAndDrop();
         };
 
-        // --- 출력 및 메뉴 제어 ---
+        // --- 출력 및 파일 저장 기능 ---
         function toggleExportMenu() {
             const menu = document.getElementById('exportMenu');
             menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
@@ -180,8 +183,7 @@
 
         async function exportResult(type) {
             const element = document.getElementById('printArea');
-            const menu = document.getElementById('exportMenu');
-            menu.style.display = 'none';
+            document.getElementById('exportMenu').style.display = 'none';
 
             if (type === 'print') {
                 window.print();
@@ -195,34 +197,23 @@
                 const canvas = await html2canvas(element, { scale: 2 });
                 const imgData = canvas.toDataURL('image/png');
                 const { jsPDF } = window.jspdf;
-                const pdf = new jsPDF('l', 'mm', 'a4'); // 가로 모드
-                const imgProps = pdf.getImageProperties(imgData);
+                const pdf = new jsPDF('l', 'mm', 'a4');
                 const pdfWidth = pdf.internal.pageSize.getWidth();
-                const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
                 pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
                 pdf.save(`자리배치_${getCurrentClassName()}.pdf`);
             }
         }
 
-        // --- 드래그 앤 드롭 파일 업로드 ---
+        // --- 명단 업로드 (드래그 앤 드롭) ---
         function initDragAndDrop() {
             const dropZone = document.getElementById('dropZone');
-
-            dropZone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                dropZone.classList.add('drop-active');
-            });
-
-            ['dragleave', 'drop'].forEach(evt => {
-                dropZone.addEventListener(evt, () => dropZone.classList.remove('drop-active'));
-            });
-
+            dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drop-active'); });
+            ['dragleave', 'drop'].forEach(evt => dropZone.addEventListener(evt, () => dropZone.classList.remove('drop-active')));
             dropZone.addEventListener('drop', (e) => {
                 e.preventDefault();
-                const files = e.dataTransfer.files;
-                if (files.length) handleFileUpload(files[0]);
+                if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files[0]);
             });
-
             document.getElementById('fileInput').addEventListener('change', (e) => {
                 if (e.target.files.length) handleFileUpload(e.target.files[0]);
             });
@@ -246,7 +237,7 @@
             reader.readAsArrayBuffer(file);
         }
 
-        // --- 반 관리 및 유틸리티 ---
+        // --- 유틸리티 및 반 관리 ---
         function getCurrentClass() { return classes.find(c => c.id === currentClassId); }
         function getCurrentClassName() { return getCurrentClass().name; }
 
@@ -270,28 +261,17 @@
             switchClass(newClass.id);
         }
 
-        function switchClass(id) {
-            currentClassId = id;
-            renderTabs();
-            loadClassData();
-        }
-
-        function renameClass(newName) {
-            const cls = getCurrentClass();
-            if (cls) { cls.name = newName; saveToLocal(); renderTabs(); }
-        }
-
+        function switchClass(id) { currentClassId = id; renderTabs(); loadClassData(); }
+        function renameClass(newName) { const cls = getCurrentClass(); cls.name = newName; saveToLocal(); renderTabs(); }
         function deleteClass() {
             if (classes.length === 1) return alert('최소 한 개의 반은 있어야 합니다.');
-            if (!confirm('현재 반의 모든 데이터가 삭제됩니다. 계속하시겠습니까?')) return;
+            if (!confirm('현재 반의 모든 데이터가 삭제됩니다.')) return;
             classes = classes.filter(c => c.id !== currentClassId);
             currentClassId = classes[0].id;
-            saveToLocal();
-            renderTabs();
-            loadClassData();
+            saveToLocal(); renderTabs(); loadClassData();
         }
 
-        function saveToLocal() { localStorage.setItem('seatHelperData', JSON.stringify(classes)); }
+        function saveToLocal() { localStorage.setItem('seatHelperData_v2', JSON.stringify(classes)); }
 
         function loadClassData() {
             const cls = getCurrentClass();
@@ -302,20 +282,19 @@
 
         function updateStudentList(students) {
             const listEl = document.getElementById('studentList');
-            listEl.innerHTML = students.length ? '' : '<li class="italic py-8 text-center text-gray-300">엑셀 파일을 드래그하여<br>명단을 등록하세요</li>';
+            listEl.innerHTML = students.length ? '' : '<li class="italic py-8 text-center text-gray-300">명단 파일을<br>여기로 드래그하세요</li>';
             students.forEach((n, i) => {
                 const li = document.createElement('li');
-                li.className = 'flex justify-between p-1 border-b border-pink-50 hover:bg-pink-50';
+                li.className = 'flex justify-between p-1 border-b border-pink-50';
                 li.innerHTML = `<span>${i+1}. ${n}</span>`;
                 listEl.appendChild(li);
             });
         }
 
-        // --- 배치 로직 ---
+        // --- 배치 및 렌더링 ---
         function arrangeSeats() {
             const cls = getCurrentClass();
             if (!cls.students.length) return alert('학생 명단을 먼저 업로드하세요.');
-
             let list = [...cls.students];
             if (!document.getElementById('orderMode').checked) {
                 for (let i = list.length - 1; i > 0; i--) {
@@ -330,15 +309,12 @@
 
         function setView(v) {
             config.view = v;
-            document.getElementById('viewBtnStudent').className = v === 'student' ? 'px-3 py-1 rounded-lg text-sm bg-pink-100 text-pink-600 font-bold tab-active' : 'px-3 py-1 rounded-lg text-sm bg-gray-100 text-gray-500 font-bold';
-            document.getElementById('viewBtnTeacher').className = v === 'teacher' ? 'px-3 py-1 rounded-lg text-sm bg-pink-100 text-pink-600 font-bold tab-active' : 'px-3 py-1 rounded-lg text-sm bg-gray-100 text-gray-500 font-bold';
+            document.getElementById('viewBtnStudent').classList.toggle('tab-active', v === 'student');
+            document.getElementById('viewBtnTeacher').classList.toggle('tab-active', v === 'teacher');
             renderDesksByCurrent();
         }
 
-        function renderDesksByCurrent() {
-            const cls = getCurrentClass();
-            renderDesks(cls.arrangement);
-        }
+        function renderDesksByCurrent() { const cls = getCurrentClass(); renderDesks(cls.arrangement); }
 
         function renderDesks(arrangement = []) {
             const grid = document.getElementById('seatGrid');
@@ -352,14 +328,26 @@
 
             config.view === 'teacher' ? (pTop.classList.add('hidden'), pBottom.classList.remove('hidden')) : (pTop.classList.remove('hidden'), pBottom.classList.add('hidden'));
 
-            const totalSeats = Math.max(arrangement.length, config.cols * 4);
+            const totalRows = Math.max(4, Math.ceil(arrangement.length / config.cols));
+            const totalSeats = totalRows * config.cols;
             
             for (let i = 0; i < totalSeats; i++) {
+                // 시점에 따른 데이터 인덱스 계산
                 let dataIdx = (config.view === 'teacher') ? (totalSeats - 1 - i) : i;
+                
                 const desk = document.createElement('div');
                 desk.className = `desk ${arrangement[dataIdx] ? 'seat-full' : ''}`;
                 desk.draggable = true;
                 desk.dataset.index = dataIdx;
+
+                // 짝꿍 모드 간격 로직 (한 줄 내에서의 위치 기준)
+                if (config.mode === 'pair') {
+                    const posInRow = i % config.cols; // 0, 1, 2, 3, 4, 5...
+                    // 짝수번째 책상(1, 3, 5번째 index) 뒤에 간격 부여. 단, 줄의 마지막 책상은 제외.
+                    if (posInRow % 2 === 1 && posInRow !== config.cols - 1) {
+                        desk.classList.add('desk-pair-end');
+                    }
+                }
 
                 desk.addEventListener('dragstart', handleDragStart);
                 desk.addEventListener('dragover', handleDragOver);
@@ -370,7 +358,6 @@
                 
                 if (arrangement[dataIdx]) {
                     desk.innerHTML = `${numDisplay}<span class="text-sm font-bold">${arrangement[dataIdx]}</span>`;
-                    desk.style.position = 'relative';
                 } else {
                     desk.innerHTML = showNum ? `<span class="text-[10px] text-gray-200">${dataIdx + 1}</span>` : '';
                 }
@@ -378,7 +365,7 @@
             }
         }
 
-        // --- 수동 자리 교체 (드래그 앤 드롭) ---
+        // --- 수동 드래그 앤 드롭 교체 ---
         function handleDragStart(e) { dragSource = this; e.dataTransfer.effectAllowed = 'move'; this.style.opacity = '0.4'; }
         function handleDragOver(e) { e.preventDefault(); this.classList.add('over'); }
         function handleDragLeave() { this.classList.remove('over'); }
@@ -390,9 +377,7 @@
                 const srcIdx = parseInt(dragSource.dataset.index);
                 const destIdx = parseInt(this.dataset.index);
                 const cls = getCurrentClass();
-                const temp = cls.arrangement[srcIdx];
-                cls.arrangement[srcIdx] = cls.arrangement[destIdx];
-                cls.arrangement[destIdx] = temp;
+                [cls.arrangement[srcIdx], cls.arrangement[destIdx]] = [cls.arrangement[destIdx], cls.arrangement[srcIdx]];
                 saveToLocal();
                 renderDesks(cls.arrangement);
             }
@@ -407,11 +392,8 @@
             closeSettings();
         }
 
-        // 메뉴 외부 클릭 시 닫기
         window.onclick = function(event) {
-            if (!event.target.matches('.group button')) {
-                document.getElementById('exportMenu').style.display = 'none';
-            }
+            if (!event.target.closest('.relative')) document.getElementById('exportMenu').style.display = 'none';
         }
     </script>
 </body>
